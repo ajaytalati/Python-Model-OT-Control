@@ -120,7 +120,10 @@ def main():
         optim_steps=args.steps,
         learning_rate=args.lr,
     )
-    pol = PiecewiseConstant(horizon_days=args.horizon, n_controls=3)
+    pol = PiecewiseConstant(
+        horizon_days=args.horizon, n_controls=3,
+        control_bounds=problem.control_bounds,
+    )
 
     # 2) Run the optimiser.
     rng = jax.random.PRNGKey(args.seed)

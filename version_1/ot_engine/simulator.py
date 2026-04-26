@@ -101,6 +101,12 @@ def simulate_latent(
     diffusion_fn = problem.diffusion_fn_jax
     clip_fn = problem.state_clip_fn  # may be None
 
+    # Note: control-bound enforcement is handled by the policy itself
+    # (e.g. PiecewiseConstant.evaluate clips when constructed with
+    # control_bounds), so the simulator does not need to clip again.
+    # Adapters that want bound enforcement should construct their
+    # policy with the BridgeProblem's control_bounds.
+
     def step(x, scan_input):
         """Single Euler-Maruyama step on one particle.
 
