@@ -57,7 +57,7 @@ from ot_engine.compare import (
 )
 from ot_engine.pipeline import run_ot_pipeline, compare_schedules
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     # Data contracts

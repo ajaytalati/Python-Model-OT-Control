@@ -106,7 +106,7 @@ def test_simulator_with_swat_no_state_violations():
     physically valid trajectories (states in their bounds throughout)."""
     problem = make_swat_problem(scenario='recovery', horizon_days=7,
                                   n_particles=32, dt_days=0.05)
-    pol = PiecewiseConstant(horizon_days=7, n_controls=3)
+    pol = PiecewiseConstant.from_problem(problem)
     rng = jax.random.PRNGKey(0)
     traj, A_D, _ = simulate_latent(rng, problem, pol,
                                     problem.reference_schedule)
@@ -126,7 +126,7 @@ def test_swat_recovery_under_reference_does_not_recover():
     """
     problem = make_swat_problem(scenario='recovery', horizon_days=14,
                                   n_particles=64, dt_days=0.05)
-    pol = PiecewiseConstant(horizon_days=14, n_controls=3)
+    pol = PiecewiseConstant.from_problem(problem)
     rng = jax.random.PRNGKey(0)
     _, A_D, _ = simulate_latent(rng, problem, pol,
                                   problem.reference_schedule)
@@ -158,7 +158,7 @@ def test_swat_end_to_end_recovery_optimisation():
         optim_steps=300,
         learning_rate=5e-2,
     )
-    pol = PiecewiseConstant(horizon_days=14, n_controls=3)
+    pol = PiecewiseConstant.from_problem(problem)
     rng = jax.random.PRNGKey(0)
 
     # Reference baseline first.

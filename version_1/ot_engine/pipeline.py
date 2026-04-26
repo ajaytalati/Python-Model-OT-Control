@@ -42,6 +42,7 @@ def _build_policy(problem: BridgeProblem) -> ControlPolicy:
         return PiecewiseConstant(
             horizon_days=problem.horizon_days,
             n_controls=problem.n_controls,
+            control_bounds=problem.control_bounds,
         )
     raise NotImplementedError(
         f"policy_kind {problem.policy_kind} not supported in v1"
