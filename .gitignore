@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Pytest / type-checker caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Run artifacts (reproducible from experiments/run_swat.py)
+version_1/outputs/
+version_1/runs/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# JAX compilation cache (if a user enables it locally)
+jax_cache/
