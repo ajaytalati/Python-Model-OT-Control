@@ -42,8 +42,12 @@ import jax.numpy as jnp
 
 # Frozen non-absorbing-boundary regularisers. Match upstream
 # (simulation.py line 42-43). Not estimable; not configurable.
-EPS_A_FROZEN = 1.0e-4
-EPS_B_FROZEN = 1.0e-4
+# All three use the same small numerical value but are named
+# per-state-variable so the call sites at fsa_diffusion read
+# unambiguously.
+EPS_A_FROZEN = 1.0e-4    # Landau A boundary: sqrt(A + EPS_A) at A = 0
+EPS_B_FROZEN = 1.0e-4    # Jacobi B boundary: sqrt(B*(1-B) + EPS_B) at B in {0, 1}
+EPS_F_FROZEN = 1.0e-4    # CIR F boundary:    sqrt(F + EPS_F) at F = 0
 
 
 def _bifurcation_parameter(B: jnp.ndarray, F: jnp.ndarray,
@@ -127,18 +131,28 @@ def fsa_diffusion(x: jnp.ndarray,
     we need a smooth boundary regularisation. Hence:
 
         sigma_B = sigma_B * sqrt(B*(1-B) + eps_B)
-        sigma_F = sigma_F * sqrt(F + eps_B)
+        sigma_F = sigma_F * sqrt(F + eps_F)
         sigma_A = sigma_A * sqrt(A + eps_A)        (matches upstream)
 
     The eps regularisation keeps the argument of sqrt strictly positive,
-    so the gradient is bounded. eps = 1e-4 (the same constant upstream
-    uses for A) is small enough to be physiologically negligible and
-    large enough to keep gradients finite.
+    so the gradient is bounded. All three eps are 1e-4 (the same constant
+    upstream uses for A) — small enough to be physiologically negligible
+    and large enough to keep gradients finite.
 
     State-dependent forms:
       B: Jacobi sqrt(B*(1-B) + eps_B)
-      F: CIR    sqrt(F + eps_B)
+      F: CIR    sqrt(F + eps_F)
       A: Landau sqrt(A + eps_A)
+
+    Defensive clipping
+    ------------------
+    `state_clip_fn` keeps the simulator's state inside physical bounds
+    after each step, so under normal operation B is in [0, 1] when
+    `fsa_diffusion` is called. This function additionally clips B to
+    [0, 1] internally as a defence-in-depth measure: an out-of-bounds
+    B (e.g. from a caller that bypasses the simulator) would otherwise
+    drive `B*(1-B) + EPS_B` negative and produce NaN. The clip's
+    sub-gradient is zero outside [0, 1], so AD remains well-defined.
 
     Args:
         x: latent state, shape (3,).
@@ -147,11 +161,11 @@ def fsa_diffusion(x: jnp.ndarray,
     Returns:
         Per-component sigma, shape (3,).
     """
-    B = x[0]
+    B = jnp.clip(x[0], 0.0, 1.0)
     F = jnp.maximum(x[1], 0.0)
     A = jnp.maximum(x[2], 0.0)
     sigma_B = params['sigma_B'] * jnp.sqrt(B * (1.0 - B) + EPS_B_FROZEN)
-    sigma_F = params['sigma_F'] * jnp.sqrt(F + EPS_B_FROZEN)
+    sigma_F = params['sigma_F'] * jnp.sqrt(F + EPS_F_FROZEN)
     sigma_A = params['sigma_A'] * jnp.sqrt(A + EPS_A_FROZEN)
     return jnp.array([sigma_B, sigma_F, sigma_A])
 

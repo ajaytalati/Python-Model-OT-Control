@@ -106,9 +106,7 @@ def _summarise_results(results, output_dir: Path) -> Path:
         for label, res in results.items():
             mean_A = float(jnp.mean(res.amplitude_at_D))
             d = abs(mean_A - A_STAR_HEALTHY)
-            basin = float(res.fraction_in_healthy_basin) \
-                if res.fraction_in_healthy_basin is not None \
-                else float('nan')
+            basin = float(res.fraction_in_healthy_basin)    # NaN if adapter has no basin_indicator_fn
             w.writerow([label, f"{mean_A:.4f}", f"{d:.4f}",
                           f"{basin:.4f}", f"{float(res.mmd_target):.4f}"])
     return csv_path
@@ -177,8 +175,7 @@ def main():
           f"{'basin frac':>11s}  {'MMD':>8s}")
     for label, res in results.items():
         m = float(jnp.mean(res.amplitude_at_D))
-        b = (float(res.fraction_in_healthy_basin)
-              if res.fraction_in_healthy_basin is not None else float('nan'))
+        b = float(res.fraction_in_healthy_basin)    # NaN if no basin_indicator_fn
         print(f"  {label:28s}  {m:>10.3f}  {abs(m - A_STAR_HEALTHY):>10.3f}  "
               f"{b:>11.3f}  {float(res.mmd_target):>8.4f}")
 
