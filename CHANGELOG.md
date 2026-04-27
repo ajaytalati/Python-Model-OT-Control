@@ -1,5 +1,71 @@
 # Python-Model-OT-Control — Changelog
 
+## 1.3.1 — 2026-04-27
+
+### FSA adapter — three-pass review fixes
+
+Six fixes following a thorough review of the v1.3.0 FSA adapter.
+
+**Correctness fixes (user-facing)**
+
+- `A_STAR_HEALTHY = 0.78` (was 0.5). The constant is documented as
+  the median of the model-derived empirical target distribution
+  under `_HEALTHY_REFERENCE_*`. The actual median is 0.78 ± 0.001
+  across PRNG seeds. The previous value of 0.5 placed the plot
+  reference line and the `distance_to_A_star` metric at the wrong
+  location — every output figure for v1.3.0 was misleading on this
+  count.
+- Added `tests/adapters/test_fsa_adapter.py::test_a_star_healthy_matches_pool`
+  which fails if the constant drifts more than 0.05 from the
+  empirical pool median, catching this class of regression.
+- `adapters/fsa_high_res/adapter.py` top-of-module docstring
+  re-aligned with the actual `_SCENARIOS` dict. The previous values
+  (`unfit_recovery: B_0=0.05, F_0=0.10, A_0=0.01`) did not match
+  the code (`F_0=0.05, A_0=0.30`) and the same was true for the
+  other two scenarios. CHANGELOG v1.3.0 entry below has been
+  revised likewise.
+- `_build_healthy_target_sampler` docstring corrected: was
+  "(T_B=0.7, Phi=0.3)", now matches actual
+  `_HEALTHY_REFERENCE_CONTROLS = {'T_B': 0.5, 'Phi': 0.05}`.
+- Stale comment block claiming "target A ~ 0.5 ± 0.1" replaced with
+  the empirically-verified "target A ~ 0.78 ± 0.03".
+
+**Robustness fixes**
+
+- `fsa_diffusion` now clips B to [0, 1] internally before the
+  Jacobi `sqrt(B*(1-B) + eps_B)` term. State-clip prevents this in
+  normal operation but the diffusion is no longer self-defensive
+  against an out-of-bounds B (e.g. from a caller bypassing the
+  simulator).
+- Separate `EPS_F_FROZEN = 1e-4` constant added; the F-channel
+  regulariser no longer reuses `EPS_B_FROZEN`'s name. All three
+  values are still numerically equal to `1e-4`.
+
+**Cleanup**
+
+- `experiments/run_fsa.py`: removed dead `if res.fraction_in_healthy_basin
+  is not None` checks (the field is typed `float`, never `None`;
+  the no-basin-indicator path uses NaN per `closed_loop.py:124`).
+- `make_fsa_problem` docstring's "MMD gradient vanishing" narrative
+  replaced. Optimiser pinning at the reference for `unfit_recovery`
+  is **boundary saturation** (reference at the lower bound), not
+  gradient vanishing — runtime probe confirms gradients at the
+  reference are finite and non-zero (norm 0.16 to 0.84 across
+  scenarios). The MMD-geometry concern still applies to the
+  *direction* of descent, just not its magnitude.
+
+**New tests (3 files, 6 new tests)**
+
+- `test_basin_indicator_returns_scalar_bool` (parametrised over
+  three scenarios)
+- `test_basin_indicator_vmap_compatible`
+- `test_basin_indicator_requires_super_critical_mu`
+- `test_a_star_healthy_matches_pool`
+
+**Test count: 116 total** (was 110), all green.
+
+---
+
 ## 1.3.0 — 2026-04-27
 
 ### FSA-high-res adapter (Phase 6)

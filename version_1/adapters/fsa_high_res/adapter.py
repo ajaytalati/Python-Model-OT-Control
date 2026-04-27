@@ -7,16 +7,22 @@ Version: 1.0.0
 Constructs BridgeProblem instances for the FSA-high-res
 (Fitness-Strain-Amplitude) model. Three canonical clinical scenarios:
 
-    * 'unfit_recovery'   B_0=0.05, F_0=0.10, A_0=0.01,  ref (T_B=0,   Phi=0)
-                         --- sedentary, low fitness, no pulsatility;
-                             build fitness from rest.
+    * 'unfit_recovery'    B_0=0.05, F_0=0.05, A_0=0.30,  ref (T_B=0.0, Phi=0.00)
+                          --- sedentary patient with low fitness, low strain,
+                              and A near a weak fixed point. Goal: build B
+                              up so mu(B,F) rises and A grows toward the
+                              healthy target ~ 0.78.
 
-    * 'over_trained'     B_0=0.40, F_0=0.50, A_0=0.10,  ref (T_B=0.6, Phi=0.8)
-                         --- athlete pinned past the overtraining cliff;
-                             reduce strain, restore amplitude.
+    * 'over_trained'      B_0=0.60, F_0=0.60, A_0=0.05,  ref (T_B=0.7, Phi=0.50)
+                          --- athlete past the overtraining cliff: F so
+                              high that mu(B,F) is barely positive, A
+                              drained. Goal: drop Phi to let F drain and
+                              mu recover; keep T_B moderate.
 
-    * 'detrained_athlete' B_0=0.20, F_0=0.05, A_0=0.05, ref (T_B=0.3, Phi=0.2)
-                         --- returning athlete after a layoff; rebuild.
+    * 'detrained_athlete' B_0=0.20, F_0=0.05, A_0=0.30,  ref (T_B=0.3, Phi=0.15)
+                          --- returning athlete after a layoff. Mid-range
+                              B, low F, A at local steady state. Goal:
+                              raise T_B and add modest Phi to rebuild.
 
 For each scenario the *patient's current state* determines rho_0; the
 *reference schedule* holds the patient's pre-intervention controls
@@ -85,20 +91,11 @@ _SCENARIOS: Dict[str, Dict[str, float]] = {
 # achievable* under realistic intervention, ensuring the target is
 # always reachable.
 #
-# Design choice: a more aggressive target (A ~ 0.9, the deterministic
-# fixed-point under healthy steady state) creates an MMD gradient-
-# vanishing pathology — at any patient's pre-intervention reference,
-# the source A distribution is so far from the target that the
-# Gaussian kernel's gradient is effectively zero, and the optimiser
-# wanders. We instead pick "moderately recovering" controls + a
-# mid-trajectory initial state, producing target A ~ 0.5 ± 0.1 — well
-# within the reachable region from all three scenarios under sensible
-# 14-day interventions, so the optimiser sees a non-vanishing gradient
-# from the reference theta_0.
-#
-# Multi-bandwidth MMD (F2 in docs/Future_Features.md) is the principled
-# long-term fix; this is the practical fix for the v1 single-bandwidth
-# kernel.
+# Under these settings the model produces a target distribution
+# tightly concentrated around A ~ 0.78 (sd ~ 0.03) at terminal time
+# (verified empirically; stable across PRNG seeds). This is below the
+# deterministic A* = sqrt(mu/eta) ~ 0.88 fixed point because the
+# horizon is finite and noise broadens the marginal.
 _HEALTHY_REFERENCE_CONTROLS = {'T_B': 0.5, 'Phi': 0.05}
 _HEALTHY_REFERENCE_INIT = {'B_0': 0.3, 'F_0': 0.05, 'A_0': 0.40}
 
@@ -116,12 +113,14 @@ _FSA_CONTROL_BOUNDS = (
 
 FSA_CONTROL_NAMES = ('T_B', 'Phi')
 
-# Display constant: median value of the model-derived empirical target
-# distribution under the moderately-healthy reference controls. Used
-# as a reference line on plots and in distance-to-target reporting.
+# Display constant: median of the model-derived empirical target
+# distribution under _HEALTHY_REFERENCE_CONTROLS / _HEALTHY_REFERENCE_INIT.
+# Verified empirically at 0.78 with sd ~ 0.001 across PRNG seeds (see
+# tests/adapters/test_fsa_adapter.py::test_a_star_healthy_matches_pool).
+# Used as a reference line on plots and in distance-to-target metrics.
 # Decoupled from the actual loss target (which is the empirical pool;
 # see _build_healthy_target_sampler) — this is the headline scalar.
-A_STAR_HEALTHY = 0.5
+A_STAR_HEALTHY = 0.78
 
 
 def list_scenarios() -> tuple:
@@ -168,11 +167,13 @@ def _build_healthy_target_sampler(horizon_days: int, dt_days: float,
     See SWAT's `_build_healthy_target_sampler` for the rationale. In
     one paragraph: hardcoding a target for A can be unreachable when
     the model's noise level or parameters change. Here we run the FSA
-    SDE for `horizon_days` from a healthy initial state (A_0 ~ 0.55,
-    near the Stuart-Landau fixed point) under maximally-favourable
-    controls (T_B=0.7, Phi=0.3). The empirical distribution of A at
-    terminal time is the loss target, so it is always reachable by
-    something close to the healthy trajectory.
+    SDE for `horizon_days` from a healthy initial state (A_0 = 0.40,
+    below the Stuart-Landau fixed point so the trajectory has room to
+    grow) under moderate-volume controls (T_B=0.5, Phi=0.05). The
+    empirical distribution of A at terminal time concentrates around
+    0.78 ± 0.03 (verified across seeds); this is the loss target,
+    so it is always reachable by something close to the healthy
+    trajectory.
 
     Args:
         horizon_days: schedule horizon D in days.
@@ -303,27 +304,31 @@ def make_fsa_problem(
 
     Notes on optimisation quality
     -----------------------------
-    The FSA dynamics are nonlinear (regularised Landau in A, coupled
-    threshold dynamics through mu(B, F)) with state-dependent
-    multiplicative noise. The single-bandwidth Gaussian-kernel MMD in
-    the engine's terminal cost can exhibit gradient vanishing when
-    the source distribution at the patient's pre-intervention
-    reference is far from the target -- the kernel decays
-    exponentially with squared distance, so the optimiser sees
-    near-zero gradient for the right direction and instead drifts in
-    whichever direction Adam's momentum carries it. This produces
-    bad local minima for some scenarios (notably `over_trained`,
-    where the patient is far from healthy and the gradient signal
-    toward the target is weak).
+    The FSA optimiser produces bounds-respecting schedules but can
+    pin to clinically-counterintuitive points for two related reasons:
 
-    Multi-bandwidth MMD (F2 in docs/Future_Features.md) is the
-    principled fix and will land in a follow-up release. In the
-    interim, users can:
+    1. **Boundary saturation**. For scenarios whose reference is at a
+       control bound (notably `unfit_recovery` with reference at
+       T_B=0, Phi=0, both at the lower bound), the reference penalty
+       pulls toward the bound and Adam's clipped sub-gradient cannot
+       push past it. Result: the schedule pins at the reference.
+
+    2. **Single-bandwidth MMD geometry**. For scenarios where the
+       source A-distribution at theta_0 is far from the target pool
+       (mean 0.78), the Gaussian-kernel MMD's curvature is low along
+       the clinically-meaningful descent direction. Adam still
+       receives finite, non-zero gradient, but the descent can favour
+       directions that don't reduce the *clinically-relevant* gap.
+
+    Multi-bandwidth MMD (F2 in docs/Future_Features.md) addresses (2)
+    and is the principled fix. In the interim, users can:
       - Tighten the target by overriding `_HEALTHY_REFERENCE_INIT`
-        and `_HEALTHY_REFERENCE_CONTROLS` in the adapter (less
-        ambitious target = stronger gradient at theta_0).
+        and `_HEALTHY_REFERENCE_CONTROLS` (closer target = stronger
+        gradient at theta_0).
       - Warm-start the optimiser at a hand-crafted theta closer to a
         sensible solution and let Adam refine.
+      - For scenarios with reference at a bound, move the reference
+        slightly inside the bound so Adam can move in either direction.
 
     Args:
         scenario: One of 'unfit_recovery', 'over_trained',

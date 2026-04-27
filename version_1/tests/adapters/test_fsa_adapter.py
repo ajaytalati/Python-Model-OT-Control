@@ -296,3 +296,73 @@ def test_fsa_optimisation_runs_and_respects_bounds():
     # Final loss is finite
     assert bool(jnp.isfinite(trace.losses_total[-1])), \
         "Final loss is NaN or Inf"
+
+
+# =========================================================================
+# Basin indicator tests (added v1.3.1)
+# =========================================================================
+
+@pytest.mark.parametrize('scenario', list_scenarios())
+def test_basin_indicator_returns_scalar_bool(scenario: str):
+    """basin_indicator_fn must return a 0-D bool array per the contract."""
+    p = make_fsa_problem(scenario, horizon_days=14, n_particles=64)
+    x = jnp.array([0.5, 0.1, 0.78])     # near healthy reference state
+    u = jnp.array([0.5, 0.05])
+    flag = p.basin_indicator_fn(x, u, p.model_params)
+    assert flag.shape == ()
+    assert flag.dtype == jnp.bool_
+
+
+def test_basin_indicator_vmap_compatible():
+    """Closed-loop verification calls basin_indicator under vmap."""
+    p = make_fsa_problem('detrained_athlete', horizon_days=14, n_particles=64)
+    xs = jnp.array([
+        [0.5, 0.1, 0.78],     # mu > 0, A in healthy range  -> True
+        [0.0, 1.0, 0.10],     # mu << 0, A out of range     -> False
+        [0.3, 0.05, 0.30],    # mu > 0 but A below range    -> False
+    ])
+    u = jnp.array([0.5, 0.05])
+    flags = jax.vmap(lambda x: p.basin_indicator_fn(x, u, p.model_params))(xs)
+    assert flags.shape == (3,)
+    assert flags.dtype == jnp.bool_
+    # Particle 0 should be in the basin (super-critical mu, A near pool centre).
+    assert bool(flags[0])
+    # Particles 1 and 2 are clearly out of basin.
+    assert not bool(flags[1])
+    assert not bool(flags[2])
+
+
+def test_basin_indicator_requires_super_critical_mu():
+    """Basin = (A in pool's central 80%) AND (mu(B,F) > 0). Both required."""
+    p = make_fsa_problem('detrained_athlete', horizon_days=14, n_particles=64)
+    u = jnp.array([0.5, 0.05])
+    # State with healthy-range A but sub-critical mu (low B, high F):
+    x_bad_mu = jnp.array([0.0, 1.0, 0.78])
+    assert not bool(p.basin_indicator_fn(x_bad_mu, u, p.model_params))
+
+
+# =========================================================================
+# A_STAR_HEALTHY consistency test (added v1.3.1)
+# =========================================================================
+
+def test_a_star_healthy_matches_pool():
+    """A_STAR_HEALTHY must be within ~0.05 of the actual target pool median.
+
+    If the healthy reference constants drift, this catches the docstring
+    going stale (the pre-v1.3.1 bug was A_STAR_HEALTHY=0.5 while the
+    actual pool was concentrated around 0.78).
+    """
+    from adapters.fsa_high_res.adapter import _build_healthy_target_sampler
+
+    _, pool = _build_healthy_target_sampler(
+        horizon_days=14, dt_days=0.05,
+        params=default_fsa_parameters(),
+        n_pool=512, seed=0xBEEF,
+    )
+    pool_median = float(jnp.median(pool))
+    assert abs(A_STAR_HEALTHY - pool_median) < 0.05, (
+        f"A_STAR_HEALTHY={A_STAR_HEALTHY} is not within 0.05 of the actual "
+        f"pool median {pool_median:.3f}. Either tune the constant or "
+        f"adjust _HEALTHY_REFERENCE_* to bring the target back to "
+        f"the documented value."
+    )
