@@ -1,5 +1,94 @@
 # Python-Model-OT-Control — Changelog
 
+## 1.3.0 — 2026-04-27
+
+### FSA-high-res adapter (Phase 6)
+
+**New: second model adapter, proving the engine's model-agnostic design.**
+
+Vendored model:
+
+- `_vendored_models/fsa_high_res/dynamics_jax.py` (~210 lines):
+  3-state Fitness-Strain-Amplitude SDE with state-dependent diffusion
+  (Jacobi / CIR / Landau). Sourced from
+  `Python-Model-Development-Simulation/version_1/models/fsa_high_res/
+  simulation.py` (`drift_jax` line 176, `noise_scale_fn_jax` line 218),
+  rewritten to take scalar `u = (T_B, Phi)` from the OT policy
+  directly (bypassing the upstream's per-bin lookup; the high-res
+  resolution is for observations, not control). Diffusion is
+  regularised with `sqrt(B(1-B) + eps_B)`, `sqrt(F + eps_B)`,
+  `sqrt(A + eps_A)` to keep gradients finite at boundaries.
+- `_vendored_models/fsa_high_res/parameters.py`: 13-parameter
+  dictionary tuned for 14-day POC (`mu_0 = +0.02`, `tau_B = 14`,
+  `tau_F = 7`, etc.).
+- `_vendored_models/fsa_high_res/README_vendored.md`: provenance and
+  conversion notes.
+
+Adapter:
+
+- `adapters/fsa_high_res/adapter.py` (~410 lines, three scenarios):
+  - `unfit_recovery`: sedentary patient, $(B, F, A)_0 = (0.05, 0.10, 0.01)$.
+  - `over_trained`: athlete past the overtraining cliff,
+    $(0.40, 0.50, 0.10)$.
+  - `detrained_athlete`: athlete returning after layoff,
+    $(0.20, 0.05, 0.05)$.
+  - Healthy target distribution constructed from a one-off model
+    simulation under idealised healthy controls (T_B=0.5, Phi=0.05),
+    same model-derived target pattern as v1.2.0 SWAT.
+  - `A_STAR_HEALTHY = 0.5` (display constant).
+  - Control bounds: `T_B ∈ [0, 1]`, `Phi ∈ [0, 2]`.
+- `adapters/fsa_high_res/plots.py` (~190 lines): four standard
+  figures — schedule, latent paths (B/F/A), terminal A histogram,
+  loss trace.
+- `experiments/run_fsa.py` (~220 lines): CLI runner mirroring
+  `run_swat.py`. Supports `--scenario`, `--horizon`, `--steps`,
+  `--lr`, `--dt`, alphas, `--reference-sigma`, `--seed`,
+  `--output-dir`, `--no-plots`. Compares against `zero_control`,
+  `constant_reference`, `linear_interpolation` baselines.
+
+Tests:
+
+- `tests/adapters/test_fsa_adapter.py` (~300 lines): 23 structural
+  tests covering scenario catalogue, JIT-compatibility of drift /
+  diffusion, state-clip bounds, simulator-output finiteness,
+  loss finiteness at the reference, end-to-end optimisation respects
+  control bounds. Phase-5 acceptance test (beats baselines, MMD
+  within k * best) is **deferred** until multi-bandwidth MMD lands;
+  this is documented at the top of the test file.
+
+Bug fixes in `experiments/run_fsa.py`:
+
+- `summarise_trace` returns `'final_total'` not `'final_loss'`.
+- `linear_interpolation_schedule` takes `theta_target=...` not
+  `end_value=...`.
+- `ClosedLoopResult.t` not `.t_grid`.
+
+### Known limitation (documented, deferred)
+
+The FSA-high-res optimiser exhibits a single-bandwidth-MMD gradient-
+vanishing pathology: at typical reference schedules the gradient is
+near-zero, so the optimiser stays at the reference. This produces
+schedules that are valid (bounds-respected, finite, no NaN) but
+clinically uninformative for some scenarios — the
+`unfit_recovery` schedule pins to (0, 0). Multi-bandwidth MMD
+(F2 in `docs/Future_Features.md`) is the principled fix; deferred
+to a follow-up release.
+
+This is documented in:
+
+- `adapters/fsa_high_res/adapter.py` module docstring;
+- `make_fsa_problem()` docstring;
+- `tests/adapters/test_fsa_adapter.py` module docstring (justifies
+  the absence of phase-5 quality tests).
+
+### Repo health
+
+- All 87 SWAT tests still pass.
+- 23 new FSA tests pass.
+- Total: 110 tests, ~210s runtime on CPU.
+
+---
+
 ## 1.2.0 — 2026-04-26 (clinical-validity fixes)
 
 ### Critical fixes — schedule was clinically wrong
@@ -84,7 +173,6 @@ load), V_c hugs 0 (no phase fix needed). All in-bounds.
 * `experiments/run_swat.py` — uses bounds-aware policy.
 * `tests/adapters/test_swat_phase5.py` — rewritten acceptance.
 * `tests/adapters/test_swat_adapter.py` — uses `from_problem`.
-
 ## 1.1.0 — 2026-04-26
 
 ### Code review hardening (31 findings addressed)
