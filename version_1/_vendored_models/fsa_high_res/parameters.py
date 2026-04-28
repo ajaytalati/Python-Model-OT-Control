@@ -14,12 +14,10 @@ not on observations.
 
 Tuning note (from upstream)
 ---------------------------
-The defaults are tuned for the 14-day proof-of-principle horizon: mu_0
-is positive (+0.02) so mu(B, F) stays positive across the recovery
-trajectory, putting A near a stable fixed point A* = sqrt(mu/eta) of
-roughly 0.7 mid-run. This is *less negative* than the v4.1 spec's
-mu_0 = -0.3, which would require a bifurcation crossing to develop
-A > 0; under that spec a 14-day horizon is too short to see recovery.
+The defaults are tuned for the 14-day proof-of-principle horizon:
+mu_0 = +0.02 so mu(B, F) stays positive across the recovery
+trajectory, putting A near a stable fixed point A* = sqrt(mu/eta)
+of roughly 0.7 mid-run.
 """
 
 from typing import Dict
