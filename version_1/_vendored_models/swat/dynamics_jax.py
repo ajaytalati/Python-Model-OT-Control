@@ -1,8 +1,10 @@
 """
 _vendored_models/swat/dynamics_jax.py — SWAT SDE in JAX.
 =========================================================
-Date:    26 April 2026
-Version: 1.0.0
+Date:    28 April 2026
+Version: 1.1.0  (V_h-anabolic structural fix re-vendored from
+                  Python-Model-Development-Simulation:
+                  fix/swat-v-h-inversion branch / PR #11)
 Source:  SWAT_Basic_Documentation.md §4 (SDE system) and §5 (E_dyn).
 
 JAX-native drift and diffusion functions for the four-state SWAT SDE,
@@ -65,31 +67,54 @@ def entrainment_quality(W: jnp.ndarray, Z: jnp.ndarray, a: jnp.ndarray,
                          T: jnp.ndarray, V_h: jnp.ndarray, V_n: jnp.ndarray,
                          V_c: jnp.ndarray, params: Dict[str, float]
                          ) -> jnp.ndarray:
-    """E_dyn from §5.1 of the SWAT spec.
+    """E_dyn — V_h-anabolic, V_n-catabolic, phase-clamped.
 
-    E_dyn = amp_W * amp_Z * phase(V_c)
-    where amp_i = 4 * sigma(mu_i^slow) * (1 - sigma(mu_i^slow))
-    and   phase(V_c) = max(cos(2*pi*V_c/24), 0).
+    E_dyn = damp(V_n) * amp_W * amp_Z * phase(V_c)
+    where:
+        A_W   = lambda_amp_W * V_h          (V_h-driven amplitude)
+        A_Z   = lambda_amp_Z * V_h
+        B_W   = V_n - a + alpha_T * T       (slow backdrop, no V_h)
+        B_Z   = -V_n + beta_Z * a
+        amp_W = sigma(B_W + A_W) - sigma(B_W - A_W)   (clamped quarter-period)
+        amp_Z = sigma(B_Z + A_Z) - sigma(B_Z - A_Z)
+        damp  = exp(-V_n / V_n_scale)                  (chronic-load damper)
+        phase = cos(pi * min(|V_c|, V_c_max) / (2 V_c_max))
+                                                       (= 0 past V_c_max)
+
+    Replaces the pre-fix `4*sigma(mu)(1-sigma(mu))` form, which was
+    structurally V_h-catabolic on testosterone — see the source repo's
+    PR #11 for the structural argument.
 
     Args:
-        W, Z, a, T: Latent state components (scalars or matching arrays).
-        V_h, V_n, V_c: Control values (scalars or matching arrays).
-        params: SWAT parameter dictionary.
+        W, Z, a, T: Latent state components.
+        V_h, V_n, V_c: Control values (V_c in hours).
+        params: SWAT parameter dictionary. Must include lambda_amp_W,
+            lambda_amp_Z, V_n_scale, V_c_max in addition to alpha_T,
+            beta_Z.
 
     Returns:
         Scalar (or matching-shape array) in [0, 1].
     """
     alpha_T = params['alpha_T']
     beta_Z = params['beta_Z']
+    lam_amp_W = params['lambda_amp_W']
+    lam_amp_Z = params['lambda_amp_Z']
+    V_n_scale = params['V_n_scale']
+    V_c_max = params['V_c_max']
 
-    mu_W_slow = V_h + V_n - a + alpha_T * T
-    mu_Z_slow = -V_n + beta_Z * a
-    s_W = _sigmoid(mu_W_slow)
-    s_Z = _sigmoid(mu_Z_slow)
-    amp_W = 4.0 * s_W * (1.0 - s_W)
-    amp_Z = 4.0 * s_Z * (1.0 - s_Z)
-    phase = jnp.maximum(jnp.cos(2.0 * jnp.pi * V_c / 24.0), 0.0)
-    return amp_W * amp_Z * phase
+    A_W = lam_amp_W * V_h
+    A_Z = lam_amp_Z * V_h
+    B_W = V_n - a + alpha_T * T
+    B_Z = -V_n + beta_Z * a
+    amp_W = _sigmoid(B_W + A_W) - _sigmoid(B_W - A_W)
+    amp_Z = _sigmoid(B_Z + A_Z) - _sigmoid(B_Z - A_Z)
+
+    damp = jnp.exp(-V_n / V_n_scale)
+
+    V_c_eff = jnp.minimum(jnp.abs(V_c), V_c_max)
+    phase = jnp.cos(jnp.pi * V_c_eff / (2.0 * V_c_max))
+
+    return damp * amp_W * amp_Z * phase
 
 
 # =========================================================================
@@ -127,9 +152,11 @@ def swat_drift(t: jnp.ndarray, x: jnp.ndarray, u: jnp.ndarray,
     eta = params['eta']
     alpha_T = params['alpha_T']
 
-    # Wakefulness sigmoid argument.
+    # Wakefulness sigmoid argument. V_h is NOT in u_W in the corrected
+    # model — V_h enters only through entrainment_quality (where it
+    # modulates the entrainment amplitude, anabolic on T).
     C_eff = _circadian(t, V_c, phi_0)
-    u_W = lmbda * C_eff + V_h + V_n - a - kappa * Z + alpha_T * T
+    u_W = lmbda * C_eff + V_n - a - kappa * Z + alpha_T * T
     u_Z = -gamma_3 * W - V_n + beta_Z * a
 
     dW = (_sigmoid(u_W) - W) / tau_W
