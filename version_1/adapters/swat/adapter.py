@@ -74,8 +74,13 @@ _HEALTHY_REFERENCE_T_0 = 0.55     # near deterministic Stuart-Landau equilibrium
 # is the model-derived empirical distribution constructed at problem-
 # build time by `_build_healthy_target_sampler`. The two are decoupled
 # because under the post-2026-04-26 noise levels the deterministic
-# equilibrium 0.55 is not reachable by any clinically-sensible schedule.
-T_STAR_HEALTHY = 0.55
+# equilibrium is not reachable by any clinically-sensible schedule.
+#
+# Bumped 0.55 -> 0.9 on 2026-04-28 alongside the V_h-anabolic
+# structural fix: under the corrected dynamics the healthy reference
+# (V_h=2, V_n=0.1, V_c=0) produces T(D) ~ 0.85-0.95, so the display
+# constant is set to the rounded mid-band.
+T_STAR_HEALTHY = 0.9
 
 
 # Clinical control bounds (review fix: V_h lower bound corrected from

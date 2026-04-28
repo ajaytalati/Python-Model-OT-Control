@@ -1,18 +1,33 @@
 """
 _vendored_models/swat/parameters.py — Default SWAT model parameters.
 ======================================================================
-Date:    26 April 2026
-Version: 1.1.0
-Source:  Python-Model-Development-Simulation @ main, version_1/models/swat/simulation.py PARAM_SET_A
+Date:    28 April 2026
+Version: 1.2.0   (V_h-anabolic structural fix; three new params
+                   lambda_amp_W, lambda_amp_Z, V_n_scale; one new
+                   constant V_c_max)
+Source:  Python-Model-Development-Simulation, fix/swat-v-h-inversion
+         branch / PR #11
 
-Re-pulled from upstream on 2026-04-26 to incorporate the re-tuned
-beta_Z and c_tilde values flagged in the upstream issue tracker:
-  * beta_Z: 2.5 -> 4.0    (closes upstream #5 / #7 — Zt amplitude not
-                          reaching deep-sleep threshold; tau_a=3h drains
-                          a too fast otherwise)
-  * c_tilde: 3.0 -> 2.5   (closes upstream #8 — sleep fraction was ~19%
-                          with new beta_Z, lowered threshold restores ~33%)
-  * T_Z:     0.01 -> 0.05 (matches upstream PARAM_SET_A noise temperature)
+Re-vendored from upstream after the V_h-inversion structural fix.
+The upstream entrainment formula was rewritten so V_h enters the
+amplitude factor rather than u_W directly; this brings the model's
+testosterone response into alignment with the clinical interpretation
+(V_h-healthy => high T) instead of inverting it. See upstream PR #11
+and `dynamics_jax.py:entrainment_quality` for the new formulation.
+
+Three new estimable parameters:
+  - lambda_amp_W = 5.0   (V_h gain into W-side entrainment amplitude)
+  - lambda_amp_Z = 8.0   (V_h gain into Z-side entrainment amplitude)
+  - V_n_scale    = 2.0   (V_n damper scale: damp = exp(-V_n / V_n_scale))
+
+One new clinical constant (not estimable):
+  - V_c_max      = 3.0   (phase shift threshold; |V_c| >= 3 hours
+                          collapses entrainment to 0)
+
+Earlier 2026-04-26 re-tunes are preserved:
+  * beta_Z: 2.5 -> 4.0    (closes upstream #5 / #7)
+  * c_tilde: 3.0 -> 2.5   (closes upstream #8)
+  * T_Z:     0.01 -> 0.05 (matches upstream PARAM_SET_A)
 
 (c_tilde is an observation-channel parameter and does not affect the OT
 engine's drift/diffusion. It is recorded here for traceability.)
@@ -86,5 +101,15 @@ def default_swat_parameters() -> Dict[str, float]:
     # Observation-channel parameter (not used in OT drift/diffusion;
     # included for traceability against upstream).
     p['c_tilde'] = 2.5    # ← was 3.0; upstream re-tune 2026-04-26
+
+    # ── V_h-anabolic structural fix (upstream PR #11) ─────────────────
+    # V_h modulates entrainment amplitude rather than entering u_W
+    # directly. New estimable parameters:
+    p['lambda_amp_W'] = 5.0   # V_h gain into W-side amplitude
+    p['lambda_amp_Z'] = 8.0   # V_h gain into Z-side amplitude
+    p['V_n_scale']    = 2.0   # V_n damper scale
+    # Clinical constant (not estimable): any |V_c| >= V_c_max collapses
+    # the phase factor to 0.
+    p['V_c_max']      = 3.0
 
     return p
